@@ -21,7 +21,7 @@ bot.on("message", async (ctx) => {
       sourceMeta: extracted.sourceMeta as Record<string, unknown> | undefined,
     });
   } catch (err) {
-    logger.error("Failed to enqueue message", { err: String(err), chatId: extracted.chatId });
+    logger.error({ message: "Failed to enqueue message", err: String(err), chatId: extracted.chatId });
     await ctx.reply("Ошибка постановки в очередь. Попробуйте позже.").catch(() => {});
   }
 });
@@ -51,7 +51,7 @@ export async function startWeb(): Promise<void> {
         res.writeHead(200);
         res.end();
       } catch (err) {
-        logger.error("Webhook error", { err: String(err) });
+        logger.error({ message: "Webhook error", err: String(err) });
         res.writeHead(500);
         res.end();
       }
@@ -63,14 +63,14 @@ export async function startWeb(): Promise<void> {
   });
 
   server.listen(port, () => {
-    logger.info("Web server listening", { port });
+    logger.info({ message: "Web server listening", port });
   });
 
   if (config.app.setWebhookOnStart && process.env.RAILWAY_STATIC_URL) {
     const url = `${process.env.RAILWAY_STATIC_URL}/telegram/webhook`;
     await bot.api.setWebhook(url).then(
-      () => logger.info("Webhook set", { url }),
-      (err) => logger.warn("Webhook set failed", { err: String(err) })
+      () => logger.info({ message: "Webhook set", url }),
+      (err) => logger.warn({ message: "Webhook set failed", err: String(err) })
     );
   }
 }

@@ -1,5 +1,15 @@
-import type { Message } from "grammy/types";
 import { config } from "../config/env";
+
+/** Minimal message shape we need (compatible with grammy Message). */
+export interface MessageLike {
+  text?: string;
+  caption?: string;
+  chat: { id: number };
+  message_id: number;
+  from?: { id: number };
+  forward_origin?: unknown;
+  forward_date?: number;
+}
 
 export interface ExtractedMessage {
   text: string;
@@ -19,7 +29,7 @@ export interface SourceMeta {
  * Get raw text from message: message.text or message.caption.
  * Returns null if no text/caption (e.g. media without caption, service message).
  */
-export function getRawText(message: Message): string | null {
+export function getRawText(message: MessageLike): string | null {
   const raw = message.text ?? message.caption ?? null;
   return typeof raw === "string" ? raw : null;
 }
@@ -44,7 +54,7 @@ export function normalizeText(text: string): string {
 /**
  * Extract and normalize text from message. Returns null if no text to process.
  */
-export function extractMessage(message: Message): ExtractedMessage | null {
+export function extractMessage(message: MessageLike): ExtractedMessage | null {
   const raw = getRawText(message);
   if (raw === null || raw === "") return null;
 
@@ -55,15 +65,14 @@ export function extractMessage(message: Message): ExtractedMessage | null {
   const messageId = message.message_id;
   const userId = message.from?.id ?? 0;
 
-  const origin = message.forward_origin;
-  const originChannel = origin?.type === "channel" ? (origin as { chat?: { title?: string; username?: string }; author_signature?: string }) : null;
-  const msgWithDate = message as { forward_date?: number };
+  const origin = message.forward_origin as { type?: string; chat?: { title?: string; username?: string }; author_signature?: string } | undefined;
+  const originChannel = origin?.type === "channel" ? origin : null;
   const sourceMeta: SourceMeta | undefined = origin
     ? {
         forwardFromChat: originChannel
           ? { title: originChannel.chat?.title, username: originChannel.chat?.username }
           : undefined,
-        forwardDate: msgWithDate.forward_date,
+        forwardDate: message.forward_date,
         forwardSignature: originChannel?.author_signature,
       }
     : undefined;

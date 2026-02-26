@@ -43,11 +43,11 @@ export async function startWorker(): Promise<void> {
   );
 
   worker.on("completed", (job) => {
-    logger.info("Job completed", { jobId: job.id });
+    logger.info({ message: "Job completed", jobId: job.id });
   });
   worker.on("failed", (job, err) => {
-    logger.error("Job failed", { jobId: job?.id, err: String(err) });
+    logger.error({ message: "Job failed", jobId: job?.id, err: String(err) });
   });
 
-  logger.info("Worker started", { concurrency: config.queue.workerConcurrency });
+  logger.info({ message: "Worker started", concurrency: config.queue.workerConcurrency });
 }

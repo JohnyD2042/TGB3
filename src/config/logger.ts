@@ -6,7 +6,7 @@ const { combine, timestamp, json } = winston.format;
 export const logger = winston.createLogger({
   level: config.app.logLevel,
   format: combine(
-    timestamp({ format: "isoDateTime" }),
+    timestamp(),
     json()
   ),
   defaultMeta: { service: "tgb3" },
