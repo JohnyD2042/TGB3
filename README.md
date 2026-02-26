@@ -1,30 +1,39 @@
-# TGB3 — Telegram-бот для анализа и переформатирования сообщений
+# TGB3 — Telegram-бот для анализа сообщений
 
-Бот принимает пересланные или обычные сообщения, обрабатывает их через LLM и возвращает переписанный текст по заданному промпту.
+Один процесс: принимает сообщения по webhook, прогоняет через LLM, отправляет ответ. Без Redis, без отдельного воркера, без GrammY — только Node.js и fetch к Telegram API.
 
-## Переменные окружения (Railway)
+## Переменные в Railway
 
-Переменные **не хранятся в коде** — их нужно задать в интерфейсе Railway.
+В Railway переменные задаются вручную. Чтобы не искать названия по коду:
 
-### Где вводить переменные в Railway
+1. Открой проект в Railway → свой сервис (блок с приложением).
+2. Вкладка **Variables** (или **Settings** → **Variables**).
+3. Нажми **+ New Variable** / **Add Variable** и добавляй по одной. Имена — ниже (значения вводишь сам).
 
-1. Открой свой проект в [railway.app](https://railway.app).
-2. Нажми на **сервис** (блок с твоим приложением, не на репозиторий).
-3. Вверху или сбоку найди вкладку **Variables** (или **Variables** в меню сервиса).
-4. Нажми **+ New Variable** или **Add Variable** и вводи пары: имя переменной и значение.
+**Обязательные (без них бот не запустится):**
 
-Если вкладки Variables нет — зайди в **Settings** этого сервиса и поищи раздел **Environment** или **Variables**.
+| Имя переменной      | Пример значения   | Где взять |
+|---------------------|-------------------|-----------|
+| `TELEGRAM_BOT_TOKEN`| (длинная строка)  | @BotFather в Telegram → /newbot |
+| `LLM_PROVIDER`      | `openai`          | буквально `openai` или `anthropic` |
+| `LLM_MODEL`         | `gpt-4o-mini`     | название модели |
+| `OPENAI_API_KEY`    | `sk-...`         | platform.openai.com → API keys |
 
-### Что обязательно добавить
+Если используешь Anthropic: `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-3-5-sonnet-20241022`, переменная `ANTHROPIC_API_KEY`.
 
-| Переменная | Пример | Где взять |
-|------------|--------|-----------|
-| `TELEGRAM_BOT_TOKEN` | длинная строка | [@BotFather](https://t.me/BotFather) в Telegram → /newbot → скопировать токен |
-| `REDIS_URL` | `redis://default:xxx@xxx.railway.app:12345` | В Railway: добавь сервис **Redis** (Database → Redis), затем в настройках Redis скопируй переменную `REDIS_URL` и добавь её в твой сервис с ботом |
-| `LLM_PROVIDER` | `openai` | Буквально слово openai или anthropic |
-| `LLM_MODEL` | `gpt-4o-mini` | Название модели (gpt-4o-mini, gpt-4o и т.д.) |
-| `OPENAI_API_KEY` | `sk-...` | [platform.openai.com](https://platform.openai.com) → API keys → создать ключ |
+**По желанию:** `SET_WEBHOOK=true` (один раз, чтобы бот сам прописал webhook по домену Railway), `LOG_LEVEL=info`, `FORMAT_PROMPT` (текст промпта вместо файла).
 
-Без этих переменных приложение при старте выдаст ошибку и не запустится.
+## Промпт
 
-Полный список переменных — в файле [.env.example](.env.example) (только имена, значения не заполняй в репо).
+По умолчанию используется файл `prompts/format_prompt.md` в репозитории. Можно переопределить переменной `FORMAT_PROMPT` в Railway. В промпте можно использовать `{{INPUT_TEXT}}` и `{{SOURCE_META}}`.
+
+## Локально
+
+```bash
+npm install
+npm run build
+# Задай переменные в .env (TELEGRAM_BOT_TOKEN, LLM_PROVIDER, LLM_MODEL, OPENAI_API_KEY)
+npm start
+```
+
+После деплоя в Railway у сервиса появится домен. Webhook для Telegram: `https://ТВОЙ-ДОМЕН.up.railway.app/telegram/webhook`. Либо включи `SET_WEBHOOK=true` и задай домен через Railway (он подставит `RAILWAY_PUBLIC_DOMAIN`).

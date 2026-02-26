@@ -1,6 +1,6 @@
 import { config } from "../config/env";
 
-/** Minimal message shape we need (compatible with grammy Message). */
+/** Minimal message shape from Telegram update.message. */
 export interface MessageLike {
   text?: string;
   caption?: string;
