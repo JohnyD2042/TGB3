@@ -55,23 +55,16 @@ export function extractMessage(message: Message): ExtractedMessage | null {
   const messageId = message.message_id;
   const userId = message.from?.id ?? 0;
 
-  const sourceMeta: SourceMeta | undefined = message.forward_origin
+  const origin = message.forward_origin;
+  const originChannel = origin?.type === "channel" ? (origin as { chat?: { title?: string; username?: string }; author_signature?: string }) : null;
+  const msgWithDate = message as { forward_date?: number };
+  const sourceMeta: SourceMeta | undefined = origin
     ? {
-        forwardFromChat:
-          message.forward_origin.type === "channel"
-            ? {
-                title: message.forward_origin.chat_title,
-                username: message.forward_origin.chat?.username,
-              }
-            : message.forward_origin.type === "hidden_user"
-              ? undefined
-              : undefined,
-        forwardDate:
-          message.forward_date ?? message.forward_origin["forward_date"],
-        forwardSignature:
-          message.forward_origin.type === "channel"
-            ? message.forward_origin.author_signature
-            : undefined,
+        forwardFromChat: originChannel
+          ? { title: originChannel.chat?.title, username: originChannel.chat?.username }
+          : undefined,
+        forwardDate: msgWithDate.forward_date,
+        forwardSignature: originChannel?.author_signature,
       }
     : undefined;
 
