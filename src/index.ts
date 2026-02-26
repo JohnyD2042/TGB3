@@ -3,7 +3,7 @@ import * as crypto from "crypto";
 import http from "http";
 import { config, validateConfig } from "./config/env";
 import { logger } from "./config/logger";
-import { extractMessage } from "./bot/extract";
+import { extractMessage, type MessageLike } from "./bot/extract";
 import { loadFormatPrompt } from "./prompts/loader";
 import { getLLMClient } from "./llm/client";
 import { sendMessage, setWebhook } from "./telegram";
@@ -33,9 +33,9 @@ function tryParseExtractedData(text: string): ExtractedData | null {
 async function handleUpdate(update: unknown): Promise<void> {
   const u = update as { message?: { text?: string; caption?: string; chat?: { id: number }; message_id?: number; from?: { id: number }; forward_origin?: unknown; forward_date?: number } };
   const msg = u?.message;
-  if (!msg || (!msg.text && !msg.caption)) return;
+  if (!msg || (!msg.text && !msg.caption) || !msg.chat) return;
 
-  const extracted = extractMessage(msg);
+  const extracted = extractMessage(msg as MessageLike);
   if (!extracted) return;
 
   const { chatId, messageId, userId, text: inputText, sourceMeta } = extracted;
