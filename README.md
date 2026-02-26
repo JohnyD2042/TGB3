@@ -21,7 +21,9 @@
 
 Если используешь Anthropic: `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-3-5-sonnet-20241022`, переменная `ANTHROPIC_API_KEY`.
 
-**По желанию:** `SET_WEBHOOK=true` (один раз, чтобы бот сам прописал webhook по домену Railway), `LOG_LEVEL=info`, `FORMAT_PROMPT` (текст промпта вместо файла).
+**Для сохранения в БД и выгрузки в Google Sheets:** добавь Postgres в Railway (Database → Postgres), скопируй `DATABASE_URL` в переменные сервиса с ботом. Тогда каждое обработанное сообщение пишется в таблицу `extractions` (сырой ответ и извлечённые параметры в JSON). Дальше можно настроить экспорт в Google Sheets.
+
+**По желанию:** `SET_WEBHOOK=true`, `LOG_LEVEL=info`, `FORMAT_PROMPT`.
 
 ## Промпт
 

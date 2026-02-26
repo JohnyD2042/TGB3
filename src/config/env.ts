@@ -57,6 +57,10 @@ export const config = {
     formatPromptEnv: getEnv("FORMAT_PROMPT"),
     maxInputLength: optionalNum("MAX_INPUT_LENGTH", 50000),
   },
+
+  database: {
+    url: getEnv("DATABASE_URL"),
+  },
 };
 
 export const SUPPORTED_LLM_PROVIDERS = ["openai", "anthropic"] as const;
