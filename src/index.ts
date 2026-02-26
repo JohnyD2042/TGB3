@@ -39,9 +39,17 @@ async function handleUpdate(update: unknown): Promise<void> {
   if (!extracted) return;
 
   const { chatId, messageId, userId, text: inputText, sourceMeta } = extracted;
-  const systemPrompt = "Ты — помощник по структурированию и анализу сообщений. Строго следуй инструкциям. Не добавляй фактов от себя.";
+  const systemPrompt = "Ты — редактор инвестиционного приложения. Строго следуй инструкциям в промпте. Не выдумывай факты.";
   const formatPrompt = await loadFormatPrompt();
-  const sourceMetaStr = sourceMeta ? JSON.stringify(sourceMeta) : "";
+  const promptMeta: Record<string, unknown> = {
+    channel_title: sourceMeta?.forwardFromChat?.title ?? null,
+    channel_username: sourceMeta?.forwardFromChat?.username ?? null,
+    post_id: messageId,
+    forward_from: sourceMeta?.forwardFromChat?.title ?? sourceMeta?.forwardFromChat?.username ?? null,
+    author_signature: sourceMeta?.forwardSignature ?? null,
+    message_date: sourceMeta?.forwardDate ?? null,
+  };
+  const sourceMetaStr = JSON.stringify(promptMeta);
   const userMessage = formatPrompt
     .replace(/\{\{INPUT_TEXT\}\}/g, inputText)
     .replace(/\{\{SOURCE_META\}\}/g, sourceMetaStr);
