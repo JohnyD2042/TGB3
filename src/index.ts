@@ -3,9 +3,10 @@ import { config, validateConfig } from "./config/env";
 import { logger } from "./config/logger";
 
 function main() {
-  const mode = process.argv[2];
-  if (mode !== "web" && mode !== "worker") {
-    logger.error({ message: "Usage: node dist/index.js <web|worker>", mode });
+  const arg = process.argv[2];
+  const mode = arg === "worker" ? "worker" : "web";
+  if (arg && arg !== "web" && arg !== "worker") {
+    logger.error({ message: "Usage: node dist/index.js [web|worker], default is web", mode: arg });
     process.exit(1);
   }
 
