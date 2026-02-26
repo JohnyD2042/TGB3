@@ -10,7 +10,9 @@ function getEnv(key: string): string | undefined {
 function requireEnv(key: string): string {
   const v = getEnv(key);
   if (v === undefined || v === "") {
-    throw new Error(`Missing required env: ${key}`);
+    throw new Error(
+      `Missing required env: ${key}. Set it in Railway: Service → Variables → Add Variable.`
+    );
   }
   return v;
 }
