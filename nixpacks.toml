@@ -1,0 +1,9 @@
+# Ensure devDependencies are installed for build (TypeScript, etc.)
+[phases.setup]
+nixPkgs = ["nodejs_22", "npm-9_x"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import crypto from "crypto";
+import * as crypto from "crypto";
 import http from "http";
 import { config, validateConfig } from "./config/env";
 import { logger } from "./config/logger";
