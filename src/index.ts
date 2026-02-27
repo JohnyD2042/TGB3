@@ -124,9 +124,12 @@ async function main() {
 
   server.listen(config.app.port, async () => {
     logger.info({ message: "Listening", port: config.app.port });
-    const domain = process.env.RAILWAY_PUBLIC_DOMAIN;
+    const domain =
+      process.env.PUBLIC_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") ||
+      process.env.RAILWAY_PUBLIC_DOMAIN;
     if (config.app.setWebhookOnStart && domain) {
-      await setWebhook(`https://${domain}/telegram/webhook`);
+      const webhookUrl = `https://${domain}/telegram/webhook`;
+      await setWebhook(webhookUrl);
     }
   });
 }
