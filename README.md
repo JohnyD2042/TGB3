@@ -15,11 +15,12 @@
 | Имя переменной      | Пример значения   | Где взять |
 |---------------------|-------------------|-----------|
 | `TELEGRAM_BOT_TOKEN`| (длинная строка)  | @BotFather в Telegram → /newbot |
-| `LLM_PROVIDER`      | `openai`          | буквально `openai` или `anthropic` |
-| `LLM_MODEL`         | `gpt-4o-mini`     | название модели |
-| `OPENAI_API_KEY`    | `sk-...`         | platform.openai.com → API keys |
+| `LLM_PROVIDER`      | `openrouter` или `openai` | `openrouter` / `openai` / `anthropic` |
+| `LLM_MODEL`         | `openai/gpt-4o-mini`      | ID модели (для OpenRouter: openai/gpt-4o-mini, anthropic/claude-3.5-sonnet и т.д.) |
+| `OPENROUTER_API_KEY`| `sk-or-v1-...`            | ключ с openrouter.ai (если LLM_PROVIDER=openrouter) |
+| `OPENAI_API_KEY`    | `sk-...`                  | если используешь openai напрямую |
 
-Если используешь Anthropic: `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-3-5-sonnet-20241022`, переменная `ANTHROPIC_API_KEY`.
+Если используешь Anthropic напрямую: `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-3-5-sonnet-20241022`, переменная `ANTHROPIC_API_KEY`.
 
 **Для сохранения в БД и выгрузки в Google Sheets:** добавь Postgres в Railway (Database → Postgres), скопируй `DATABASE_URL` в переменные сервиса с ботом. Тогда каждое обработанное сообщение пишется в таблицу `extractions` (сырой ответ и извлечённые параметры в JSON). Дальше можно настроить экспорт в Google Sheets.
 

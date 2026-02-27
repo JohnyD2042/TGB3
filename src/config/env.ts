@@ -53,6 +53,7 @@ export const config = {
   providers: {
     openai: { apiKey: getEnv("OPENAI_API_KEY") },
     anthropic: { apiKey: getEnv("ANTHROPIC_API_KEY") },
+    openrouter: { apiKey: getEnv("OPENROUTER_API_KEY") },
   },
 
   prompts: {
@@ -65,12 +66,13 @@ export const config = {
   },
 };
 
-export const SUPPORTED_LLM_PROVIDERS = ["openai", "anthropic"] as const;
+export const SUPPORTED_LLM_PROVIDERS = ["openai", "anthropic", "openrouter"] as const;
 export type LLMProviderName = (typeof SUPPORTED_LLM_PROVIDERS)[number];
 
 const PROVIDER_API_KEYS: Record<LLMProviderName, string> = {
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
 };
 
 export function validateConfig(): void {

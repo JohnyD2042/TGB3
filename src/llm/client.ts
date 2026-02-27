@@ -2,6 +2,7 @@ import { config } from "../config/env";
 import type { LLMProviderName } from "../config/env";
 import { createOpenAIClient } from "./providers/openai";
 import { createAnthropicClient } from "./providers/anthropic";
+import { createOpenRouterClient } from "./providers/openrouter";
 
 export interface LLMSettings {
   temperature?: number;
@@ -24,7 +25,9 @@ export function getLLMClient(): LLMClient {
       return createOpenAIClient();
     case "anthropic":
       return createAnthropicClient();
+    case "openrouter":
+      return createOpenRouterClient();
     default:
-      throw new Error(`Unsupported LLM_PROVIDER: ${config.llm.provider}. Supported: openai, anthropic.`);
+      throw new Error(`Unsupported LLM_PROVIDER: ${config.llm.provider}. Supported: openai, anthropic, openrouter.`);
   }
 }
