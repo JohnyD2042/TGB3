@@ -61,6 +61,17 @@ async function handleUpdate(update: unknown): Promise<void> {
     timeoutMs: config.llm.timeoutMs,
   });
 
+  // Проверка промпта: при LOG_LEVEL=debug в логах видно, что ушло в LLM и что вернулось
+  if (config.app.logLevel === "debug") {
+    logger.debug({
+      message: "Prompt and LLM output (to verify title rules)",
+      promptSource: config.prompts.formatPromptEnv ? "env" : "file",
+      promptLength: userMessage.length,
+      promptPreview: userMessage.slice(0, 1200),
+      llmOutput: output,
+    });
+  }
+
   const replyText = output.trim() || "Нет ответа.";
   await sendMessage(chatId, replyText);
 
