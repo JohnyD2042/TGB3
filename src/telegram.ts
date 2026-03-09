@@ -4,28 +4,67 @@ import { logger } from "./config/logger";
 const TELEGRAM_API = "https://api.telegram.org";
 const MAX_MESSAGE_LENGTH = 4096;
 
-export async function sendMessage(chatId: number, text: string): Promise<void> {
+export interface SendMessageOptions {
+  /** Inline-кнопка под последним сообщением (например "Отправить в таблицу"). */
+  replyMarkup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> };
+}
+
+/**
+ * Отправляет сообщение в чат. Если передан replyMarkup, он добавляется только к последнему чанку.
+ * Возвращает message_id последнего отправленного сообщения.
+ */
+export async function sendMessage(
+  chatId: number,
+  text: string,
+  options?: SendMessageOptions
+): Promise<number> {
   const chunks: string[] = [];
   for (let i = 0; i < text.length; i += MAX_MESSAGE_LENGTH) {
     chunks.push(text.slice(i, i + MAX_MESSAGE_LENGTH));
   }
-  if (chunks.length === 0) return;
+  if (chunks.length === 0) return 0;
 
   const url = `${TELEGRAM_API}/bot${config.telegram.botToken}/sendMessage`;
+  let lastMessageId = 0;
   for (let i = 0; i < chunks.length; i++) {
-    const body = JSON.stringify({ chat_id: chatId, text: chunks[i] });
+    const isLast = i === chunks.length - 1;
+    const payload: Record<string, unknown> = {
+      chat_id: chatId,
+      text: chunks[i],
+    };
+    if (isLast && options?.replyMarkup) {
+      payload.reply_markup = options.replyMarkup;
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body,
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`Telegram API ${res.status}: ${errText}`);
     }
+    const data = (await res.json()) as { result?: { message_id?: number } };
+    if (data.result?.message_id) lastMessageId = data.result.message_id;
     if (i < chunks.length - 1) {
       await new Promise((r) => setTimeout(r, config.telegram.sendDelayMs));
     }
+  }
+  return lastMessageId;
+}
+
+export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+  const url = `${TELEGRAM_API}/bot${config.telegram.botToken}/answerCallbackQuery`;
+  const body: Record<string, unknown> = { callback_query_id: callbackQueryId };
+  if (text) body.text = text;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    logger.warn({ message: "answerCallbackQuery failed", err: errText });
   }
 }
 

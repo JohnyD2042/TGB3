@@ -16,6 +16,7 @@
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
     "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0",
     "openai": "^4.73.0",
     "pg": "^8.13.0",
     "typescript": "^5.7.2",

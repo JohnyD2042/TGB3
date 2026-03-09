@@ -4,10 +4,12 @@ import http from "http";
 import { config, validateConfig } from "./config/env";
 import { logger } from "./config/logger";
 import { extractMessage, type MessageLike } from "./bot/extract";
+import { parseIdeyaBlock } from "./bot/parse-ideya";
 import { loadFormatPrompt } from "./prompts/loader";
 import { getLLMClient } from "./llm/client";
-import { sendMessage, setWebhook } from "./telegram";
-import { initDb, saveExtraction, type ExtractedData } from "./db";
+import { sendMessage, answerCallbackQuery, setWebhook } from "./telegram";
+import { initDb, saveExtraction, getExtractionByBotMessage, type ExtractedData } from "./db";
+import { appendIdeyaRow } from "./sheets";
 
 function tryParseExtractedData(text: string): ExtractedData | null {
   const trimmed = text.trim();
@@ -89,19 +91,48 @@ async function handleUpdate(update: unknown): Promise<void> {
   } else {
     replyText = replyText.replace(/^Источник:\s*.*$/m, "Источник: —");
   }
-  await sendMessage(chatId, replyText);
+
+  const sentMessageId = await sendMessage(chatId, replyText, {
+    replyMarkup: {
+      inline_keyboard: [[{ text: "Отправить в таблицу", callback_data: "send_sheet" }]],
+    },
+  });
 
   const inputTextHash = crypto.createHash("sha256").update(inputText).digest("hex");
   const extractedData = tryParseExtractedData(output) ?? undefined;
   await saveExtraction({
     chatId,
     messageId,
+    botMessageId: sentMessageId || undefined,
     userId,
     inputTextHash,
     rawOutput: replyText,
     extractedData,
     sourceMeta: sourceMeta as Record<string, unknown> | undefined,
   });
+}
+
+async function handleCallbackQuery(callbackQuery: {
+  id: string;
+  message?: { chat?: { id: number }; message_id?: number };
+}): Promise<void> {
+  const chatId = callbackQuery.message?.chat?.id;
+  const botMessageId = callbackQuery.message?.message_id;
+  if (chatId == null || botMessageId == null) return;
+  if (callbackQuery.id === undefined) return;
+
+  const extraction = await getExtractionByBotMessage(chatId, botMessageId);
+  if (!extraction) {
+    await answerCallbackQuery(callbackQuery.id, "Запись не найдена.");
+    return;
+  }
+
+  const fields = parseIdeyaBlock(extraction.raw_output);
+  const appended = await appendIdeyaRow(fields);
+  await answerCallbackQuery(
+    callbackQuery.id,
+    appended ? "Добавлено в таблицу" : "Таблица не настроена или ошибка записи"
+  );
 }
 
 async function main() {
@@ -135,8 +166,15 @@ async function main() {
         body += chunk;
       }
       try {
-        const update = JSON.parse(body) as unknown;
-        await handleUpdate(update);
+        const update = JSON.parse(body) as {
+          message?: unknown;
+          callback_query?: { id: string; message?: { chat?: { id: number }; message_id?: number } };
+        };
+        if (update.callback_query) {
+          await handleCallbackQuery(update.callback_query);
+        } else {
+          await handleUpdate(update);
+        }
       } catch (err) {
         logger.error({ message: "Webhook error", err: String(err) });
       }

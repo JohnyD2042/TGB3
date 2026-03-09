@@ -64,6 +64,11 @@ export const config = {
   database: {
     url: getEnv("DATABASE_URL"),
   },
+
+  sheets: {
+    sheetId: getEnv("GOOGLE_SHEET_ID"),
+    credentialsJson: getEnv("GOOGLE_SHEETS_CREDENTIALS_JSON"),
+  },
 };
 
 export const SUPPORTED_LLM_PROVIDERS = ["openai", "anthropic", "openrouter"] as const;
