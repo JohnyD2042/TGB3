@@ -57,22 +57,24 @@ export async function sendMessage(
       throw new Error(`Telegram API ${res.status}: ${bodyText}`);
     }
     try {
-      const data = JSON.parse(bodyText) as { result?: { message_id?: number } };
+      const data = JSON.parse(bodyText) as { ok?: boolean; result?: { message_id?: number } };
       const mid = data.result?.message_id;
       if (mid) {
         lastMessageId = mid;
         if (isFirst && hasReplyMarkup) messageIdWithButton = mid;
       }
+      if (isFirst && hasReplyMarkup) {
+        logger.info({
+          message: "Sent message with inline button",
+          chatId,
+          messageIdWithButton,
+          lastMessageId,
+          numChunks,
+          telegramResultMessageId: mid,
+        });
+      }
     } catch {
       // ignore parse error
-    }
-    if (isFirst && hasReplyMarkup) {
-      logger.info({
-        message: "Sent message with inline button",
-        chatId,
-        messageIdWithButton,
-        numChunks,
-      });
     }
     if (i < chunks.length - 1) {
       await new Promise((r) => setTimeout(r, config.telegram.sendDelayMs));

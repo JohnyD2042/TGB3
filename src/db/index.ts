@@ -15,6 +15,8 @@ function getPool(): Pool {
   return pool;
 }
 
+// Индекс по bot_message_id не включаем сюда: таблица могла быть создана раньше без этой колонки.
+// Сначала добавляем колонку (ALTER ниже), потом создаём индекс.
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS extractions (
   id SERIAL PRIMARY KEY,
@@ -30,7 +32,6 @@ CREATE TABLE IF NOT EXISTS extractions (
 );
 CREATE INDEX IF NOT EXISTS idx_extractions_chat_id ON extractions(chat_id);
 CREATE INDEX IF NOT EXISTS idx_extractions_created_at ON extractions(created_at);
-CREATE INDEX IF NOT EXISTS idx_extractions_bot_message ON extractions(chat_id, bot_message_id);
 `;
 
 let initialized = false;
