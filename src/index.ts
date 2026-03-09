@@ -39,15 +39,6 @@ async function handleUpdate(update: unknown): Promise<void> {
   if (!extracted) return;
 
   const { chatId, messageId, userId, text: inputText, sourceMeta } = extracted;
-
-  // Лог для отладки ссылки на пост (видно в Railway): что прислал Telegram и что извлекли
-  logger.info({
-    message: "Link debug: raw forward_origin and extracted",
-    rawForwardOrigin: (msg as { forward_origin?: unknown }).forward_origin,
-    extractedChannelUsername: sourceMeta?.forwardFromChat?.username,
-    extractedForwardPostId: sourceMeta?.forwardPostId,
-    messageIdInBotChat: messageId,
-  });
   const systemPrompt = "Ты — редактор инвестиционного приложения. Строго следуй инструкциям в промпте. Не выдумывай факты.";
   const formatPrompt = await loadFormatPrompt();
   const postIdForLink = sourceMeta?.forwardPostId ?? messageId;
@@ -69,32 +60,6 @@ async function handleUpdate(update: unknown): Promise<void> {
         ? `https://t.me/c/${String(channelId).replace(/^-100/, "")}/${postIdForLink}`
         : null;
 
-  logger.info({
-    message: "Link debug: built link",
-    builtLink,
-    postIdForLink,
-    hasChannelUsername: !!channelUsername,
-  });
-
-  // #region agent log
-  fetch("http://127.0.0.1:7417/ingest/0625aa43-057e-41ca-8274-dd127b9d9f0d", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7b0ab1" },
-    body: JSON.stringify({
-      sessionId: "7b0ab1",
-      location: "index.ts:handleUpdate",
-      message: "promptMeta and built link for source",
-      data: {
-        hypothesisId: "B",
-        promptMetaPostId: promptMeta.post_id,
-        promptMetaChannelUsername: promptMeta.channel_username,
-        builtLink,
-        usedForwardPostId: sourceMeta?.forwardPostId != null,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   const userMessage = formatPrompt
     .replace(/\{\{INPUT_TEXT\}\}/g, inputText)
     .replace(/\{\{SOURCE_META\}\}/g, sourceMetaStr);
@@ -124,20 +89,6 @@ async function handleUpdate(update: unknown): Promise<void> {
   } else {
     replyText = replyText.replace(/^Источник:\s*.*$/m, "Источник: —");
   }
-  // #region agent log
-  const sourceLine = output.split("\n").find((l) => l.includes("Источник:"));
-  fetch("http://127.0.0.1:7417/ingest/0625aa43-057e-41ca-8274-dd127b9d9f0d", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7b0ab1" },
-    body: JSON.stringify({
-      sessionId: "7b0ab1",
-      location: "index.ts:handleUpdate",
-      message: "LLM output line for Источник (link)",
-      data: { hypothesisId: "C", sourceLine, sourceLineLength: sourceLine?.length, builtLinkReplaced: !!builtLink },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   await sendMessage(chatId, replyText);
 
   const inputTextHash = crypto.createHash("sha256").update(inputText).digest("hex");

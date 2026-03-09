@@ -89,28 +89,5 @@ export function extractMessage(message: MessageLike): ExtractedMessage | null {
       }
     : undefined;
 
-  // #region agent log
-  if (origin) {
-    fetch("http://127.0.0.1:7417/ingest/0625aa43-057e-41ca-8274-dd127b9d9f0d", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7b0ab1" },
-      body: JSON.stringify({
-        sessionId: "7b0ab1",
-        location: "extract.ts:extractMessage",
-        message: "forward_origin and extracted sourceMeta for link",
-        data: {
-          hypothesisId: "A",
-          originType: origin?.type,
-          originChatUsername: origin?.chat?.username,
-          originMessageId: origin?.message_id,
-          extractedUsername: sourceMeta?.forwardFromChat?.username,
-          extractedForwardPostId: sourceMeta?.forwardPostId,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
-
   return { text, chatId, messageId, userId, sourceMeta };
 }
