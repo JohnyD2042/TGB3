@@ -15,9 +15,7 @@ function getPool(): Pool {
   return pool;
 }
 
-// Индекс по bot_message_id не включаем сюда: таблица могла быть создана раньше без этой колонки.
-// Сначала добавляем колонку (ALTER ниже), потом создаём индекс.
-const CREATE_TABLE = `
+const CREATE_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS extractions (
   id SERIAL PRIMARY KEY,
   chat_id BIGINT NOT NULL,
@@ -29,10 +27,7 @@ CREATE TABLE IF NOT EXISTS extractions (
   extracted_data JSONB DEFAULT '{}',
   source_meta JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_extractions_chat_id ON extractions(chat_id);
-CREATE INDEX IF NOT EXISTS idx_extractions_created_at ON extractions(created_at);
-`;
+)`;
 
 let initialized = false;
 
@@ -40,8 +35,10 @@ export async function initDb(): Promise<void> {
   if (!config.database.url?.trim()) return;
   try {
     const p = getPool();
-    await p.query(CREATE_TABLE);
+    await p.query(CREATE_TABLE_SQL);
     await p.query(`ALTER TABLE extractions ADD COLUMN IF NOT EXISTS bot_message_id BIGINT`);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_extractions_chat_id ON extractions(chat_id)`).catch(() => {});
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_extractions_created_at ON extractions(created_at)`).catch(() => {});
     await p.query(
       `CREATE INDEX IF NOT EXISTS idx_extractions_bot_message ON extractions(chat_id, bot_message_id)`
     ).catch(() => {});
