@@ -41,15 +41,41 @@ async function handleUpdate(update: unknown): Promise<void> {
   const { chatId, messageId, userId, text: inputText, sourceMeta } = extracted;
   const systemPrompt = "Ты — редактор инвестиционного приложения. Строго следуй инструкциям в промпте. Не выдумывай факты.";
   const formatPrompt = await loadFormatPrompt();
+  const postIdForLink = sourceMeta?.forwardPostId ?? messageId;
   const promptMeta: Record<string, unknown> = {
     channel_title: sourceMeta?.forwardFromChat?.title ?? null,
     channel_username: sourceMeta?.forwardFromChat?.username ?? null,
-    post_id: messageId,
+    post_id: postIdForLink,
     forward_from: sourceMeta?.forwardFromChat?.title ?? sourceMeta?.forwardFromChat?.username ?? null,
     author_signature: sourceMeta?.forwardSignature ?? null,
     message_date: sourceMeta?.forwardDate ?? null,
   };
   const sourceMetaStr = JSON.stringify(promptMeta);
+  const channelUsername = sourceMeta?.forwardFromChat?.username;
+  const builtLink =
+    typeof channelUsername === "string" && channelUsername
+      ? `https://t.me/${channelUsername}/${postIdForLink}`
+      : null;
+
+  // #region agent log
+  fetch("http://127.0.0.1:7417/ingest/0625aa43-057e-41ca-8274-dd127b9d9f0d", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7b0ab1" },
+    body: JSON.stringify({
+      sessionId: "7b0ab1",
+      location: "index.ts:handleUpdate",
+      message: "promptMeta and built link for source",
+      data: {
+        hypothesisId: "B",
+        promptMetaPostId: promptMeta.post_id,
+        promptMetaChannelUsername: promptMeta.channel_username,
+        builtLink,
+        usedForwardPostId: sourceMeta?.forwardPostId != null,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   const userMessage = formatPrompt
     .replace(/\{\{INPUT_TEXT\}\}/g, inputText)
     .replace(/\{\{SOURCE_META\}\}/g, sourceMetaStr);
@@ -72,7 +98,25 @@ async function handleUpdate(update: unknown): Promise<void> {
     });
   }
 
-  const replyText = output.trim() || "Нет ответа.";
+  let replyText = output.trim() || "Нет ответа.";
+  // Когда есть channel_username и id поста в канале — подставляем готовую ссылку, чтобы LLM её не обрезал и не искажал
+  if (builtLink) {
+    replyText = replyText.replace(/^Источник:\s*.*$/m, `Источник: ${builtLink}`);
+  }
+  // #region agent log
+  const sourceLine = output.split("\n").find((l) => l.includes("Источник:"));
+  fetch("http://127.0.0.1:7417/ingest/0625aa43-057e-41ca-8274-dd127b9d9f0d", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7b0ab1" },
+    body: JSON.stringify({
+      sessionId: "7b0ab1",
+      location: "index.ts:handleUpdate",
+      message: "LLM output line for Источник (link)",
+      data: { hypothesisId: "C", sourceLine, sourceLineLength: sourceLine?.length, builtLinkReplaced: !!builtLink },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   await sendMessage(chatId, replyText);
 
   const inputTextHash = crypto.createHash("sha256").update(inputText).digest("hex");

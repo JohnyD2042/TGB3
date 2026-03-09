@@ -21,6 +21,8 @@ export interface ExtractedMessage {
 
 export interface SourceMeta {
   forwardFromChat?: { title?: string; username?: string };
+  /** Id of the message in the original channel (for t.me/channel/post_id link). */
+  forwardPostId?: number;
   forwardDate?: number;
   forwardSignature?: string;
 }
@@ -65,17 +67,46 @@ export function extractMessage(message: MessageLike): ExtractedMessage | null {
   const messageId = message.message_id;
   const userId = message.from?.id ?? 0;
 
-  const origin = message.forward_origin as { type?: string; chat?: { title?: string; username?: string }; author_signature?: string } | undefined;
+  const origin = message.forward_origin as {
+    type?: string;
+    chat?: { title?: string; username?: string };
+    author_signature?: string;
+    message_id?: number;
+  } | undefined;
   const originChannel = origin?.type === "channel" ? origin : null;
   const sourceMeta: SourceMeta | undefined = origin
     ? {
         forwardFromChat: originChannel
           ? { title: originChannel.chat?.title, username: originChannel.chat?.username }
           : undefined,
+        forwardPostId: originChannel?.message_id,
         forwardDate: message.forward_date,
         forwardSignature: originChannel?.author_signature,
       }
     : undefined;
+
+  // #region agent log
+  if (origin) {
+    fetch("http://127.0.0.1:7417/ingest/0625aa43-057e-41ca-8274-dd127b9d9f0d", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7b0ab1" },
+      body: JSON.stringify({
+        sessionId: "7b0ab1",
+        location: "extract.ts:extractMessage",
+        message: "forward_origin and extracted sourceMeta for link",
+        data: {
+          hypothesisId: "A",
+          originType: origin?.type,
+          originChatUsername: origin?.chat?.username,
+          originMessageId: origin?.message_id,
+          extractedUsername: sourceMeta?.forwardFromChat?.username,
+          extractedForwardPostId: sourceMeta?.forwardPostId,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
 
   return { text, chatId, messageId, userId, sourceMeta };
 }
