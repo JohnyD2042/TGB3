@@ -26,13 +26,17 @@ export async function sendMessage(
 
   const url = `${TELEGRAM_API}/bot${config.telegram.botToken}/sendMessage`;
   let lastMessageId = 0;
+  let messageIdWithButton = 0;
+  const numChunks = chunks.length;
+  const hasReplyMarkup = !!(options?.replyMarkup && numChunks > 0);
+
   for (let i = 0; i < chunks.length; i++) {
-    const isLast = i === chunks.length - 1;
+    const isFirst = i === 0;
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text: chunks[i],
     };
-    if (isLast && options?.replyMarkup) {
+    if (isFirst && options?.replyMarkup) {
       payload.reply_markup = options.replyMarkup;
     }
     const res = await fetch(url, {
@@ -40,17 +44,41 @@ export async function sendMessage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    const bodyText = await res.text();
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Telegram API ${res.status}: ${errText}`);
+      logger.error({
+        message: "Telegram sendMessage failed",
+        status: res.status,
+        chunkIndex: i,
+        isFirstChunk: isFirst,
+        hadReplyMarkup: isFirst && !!options?.replyMarkup,
+        body: bodyText.slice(0, 500),
+      });
+      throw new Error(`Telegram API ${res.status}: ${bodyText}`);
     }
-    const data = (await res.json()) as { result?: { message_id?: number } };
-    if (data.result?.message_id) lastMessageId = data.result.message_id;
+    try {
+      const data = JSON.parse(bodyText) as { result?: { message_id?: number } };
+      const mid = data.result?.message_id;
+      if (mid) {
+        lastMessageId = mid;
+        if (isFirst && hasReplyMarkup) messageIdWithButton = mid;
+      }
+    } catch {
+      // ignore parse error
+    }
+    if (isFirst && hasReplyMarkup) {
+      logger.info({
+        message: "Sent message with inline button",
+        chatId,
+        messageIdWithButton,
+        numChunks,
+      });
+    }
     if (i < chunks.length - 1) {
       await new Promise((r) => setTimeout(r, config.telegram.sendDelayMs));
     }
   }
-  return lastMessageId;
+  return messageIdWithButton || lastMessageId;
 }
 
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
