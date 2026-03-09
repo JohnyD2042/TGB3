@@ -98,6 +98,13 @@ async function handleUpdate(update: unknown): Promise<void> {
     },
   });
 
+  logger.info({
+    message: "Saving extraction with bot_message_id",
+    chatId,
+    sentMessageId,
+    willSaveBotMessageId: sentMessageId || undefined,
+  });
+
   const inputTextHash = crypto.createHash("sha256").update(inputText).digest("hex");
   const extractedData = tryParseExtractedData(output) ?? undefined;
   await saveExtraction({
@@ -121,8 +128,19 @@ async function handleCallbackQuery(callbackQuery: {
   if (chatId == null || botMessageId == null) return;
   if (callbackQuery.id === undefined) return;
 
+  logger.info({
+    message: "Callback: looking up extraction",
+    chatId,
+    botMessageId,
+  });
+
   const extraction = await getExtractionByBotMessage(chatId, botMessageId);
   if (!extraction) {
+    logger.warn({
+      message: "Callback: extraction not found",
+      chatId,
+      botMessageId,
+    });
     await answerCallbackQuery(callbackQuery.id, "Запись не найдена.");
     return;
   }
