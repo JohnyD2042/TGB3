@@ -35,30 +35,24 @@
 ```
 TGB3/
 ├── src/
-│   ├── index.ts           # Точка входа: HTTP-сервер, POST /telegram/webhook → handleUpdate
+│   ├── index.ts           # Точка входа: HTTP, handleUpdate + handleCallbackQuery (кнопка)
 │   ├── config/
-│   │   ├── env.ts         # Все переменные окружения, validateConfig()
+│   │   ├── env.ts         # Переменные окружения + config.sheets (GOOGLE_SHEET_ID, credentials)
 │   │   └── logger.ts      # Winston, JSON-логи
 │   ├── bot/
-│   │   └── extract.ts     # Извлечение text/caption, нормализация, MessageLike, sourceMeta
-│   ├── telegram.ts       # sendMessage (fetch), setWebhook
-│   ├── prompts/
-│   │   └── loader.ts      # Загрузка промпта: FORMAT_PROMPT env или prompts/format_prompt.md
-│   ├── llm/
-│   │   ├── client.ts      # getLLMClient() по LLM_PROVIDER (openai | anthropic | openrouter)
-│   │   └── providers/
-│   │       ├── openai.ts
-│   │       ├── anthropic.ts
-│   │       └── openrouter.ts   # OpenAI-совместимый клиент, baseURL openrouter.ai
+│   │   ├── extract.ts     # Извлечение text/caption, sourceMeta, forwardPostId (для ссылки)
+│   │   └── parse-ideya.ts # Парсер ответа бота → поля для таблицы (Название 1–3, Драйвер 1–5, Ссылка и т.д.)
+│   ├── telegram.ts       # sendMessage (с опцией replyMarkup — кнопка под первым чанком), answerCallbackQuery, setWebhook
+│   ├── sheets.ts          # appendIdeyaRow(): запись строки в Google Таблицу по заголовкам (googleapis)
+│   ├── prompts/loader.ts
+│   ├── llm/               # client + providers (openai, anthropic, openrouter)
 │   └── db/
-│       └── index.ts       # initDb(), saveExtraction(), таблица extractions
-├── prompts/
-│   └── format_prompt.md   # Основной промпт "инвестидея" (редактировать здесь или через FORMAT_PROMPT)
-├── package.json
-├── tsconfig.json
-├── railway.json           # startCommand: npm start
-├── nixpacks.toml          # Фазы сборки для Railway
-└── .env.example            # Список имён переменных для Railway
+│       └── index.ts       # extractions (в т.ч. bot_message_id), saveExtraction(), getExtractionByBotMessage()
+├── prompts/format_prompt.md   # Три названия, драйверы, формат вывода
+├── docs/plan-sheets-export.md # План и инструкция по настройке Google (испанский UI)
+├── package.json           # googleapis в зависимостях
+├── .env.example
+└── ...
 ```
 
 ---
@@ -83,8 +77,9 @@ TGB3/
 
 ## 6. База данных (Postgres)
 
-- **Опционально:** если `DATABASE_URL` не задан, приложение работает без БД (saveExtraction и initDb ничего не делают).
-- При наличии `DATABASE_URL`: при старте вызывается `initDb()` — создаётся таблица `extractions` (id, chat_id, message_id, user_id, input_text_hash, raw_output, extracted_data JSONB, source_meta JSONB, created_at). После каждого ответа пользователю вызывается `saveExtraction()` — сохраняется сырой ответ и при наличии JSON в ответе LLM — разобранные данные в `extracted_data`. Это задел под выгрузку в Google Sheets.
+- **Опционально:** если `DATABASE_URL` не задан, приложение работает без БД; **для кнопки «Отправить в таблицу» БД обязательна** (по bot_message_id ищем запись при нажатии).
+- Таблица `extractions`: id, chat_id, message_id, **bot_message_id** (id сообщения бота с кнопкой), user_id, input_text_hash, raw_output, extracted_data JSONB, source_meta JSONB, created_at. При первом запуске: `ALTER TABLE ... ADD COLUMN IF NOT EXISTS bot_message_id`.
+- После ответа с идеей: `saveExtraction({ ..., botMessageId: sentMessageId })` — сохраняем id сообщения, под которым висит кнопка. При нажатии кнопки: `getExtractionByBotMessage(chatId, botMessageId)` по callback_query.message — находим raw_output, парсим, отправляем строку в Sheets.
 
 ---
 
@@ -100,34 +95,37 @@ TGB3/
 **Обязательные переменные в Railway (TGB3):**  
 `TELEGRAM_BOT_TOKEN`, `LLM_PROVIDER`, `LLM_MODEL`, и ключ выбранного провайдера (`OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`).
 
-**Опционально:** `DATABASE_URL` (из сервиса Postgres), `SET_WEBHOOK`, `PUBLIC_URL`, `LOG_LEVEL`, `FORMAT_PROMPT`.
+**Опционально:** `DATABASE_URL`, `SET_WEBHOOK`, `PUBLIC_URL`, `LOG_LEVEL`, `FORMAT_PROMPT`, **`GOOGLE_SHEET_ID`**, **`GOOGLE_SHEETS_CREDENTIALS_JSON`** (для кнопки «Отправить в таблицу» → запись в Google Таблицу).
 
 ---
 
-## 8. Что уже сделано и что решено
+## 8. Кнопка «Отправить в таблицу» и Google Sheets
 
-- Убраны Redis, BullMQ, воркер, GrammY — оставлен один процесс и fetch к Telegram API для простоты и стабильного деплоя.
-- Postgres добавлен опционально; таблица `extractions` — под будущий экспорт в Google Sheets.
-- Промпт инвестидеи встроен в `prompts/format_prompt.md`; метаданные для промпта формируются в коде (channel_title, channel_username, post_id и т.д.).
-- Добавлен провайдер OpenRouter (ключ openrouter.ai не подходит для api.openai.com — поэтому сделан отдельный провайдер).
-- Исправлены типы (MessageLike, msg.chat guard), логгер (winston — первый аргумент строка), сборка под Railway (crypto import, @types в dependencies, nixpacks.toml).
+- Под каждым ответом бота с идеей показывается **Inline-кнопка «Отправить в таблицу»** (кнопка привязана к **первому** сообщению при разбиении на чанки, чтобы была видна сразу).
+- При нажатии: в webhook приходит `callback_query`; по `chat_id` и `message_id` сообщения с кнопкой ищем запись в `extractions` → парсим `raw_output` через `parseIdeyaBlock()` → вызываем `appendIdeyaRow()` → ответ пользователю: «Добавлено в таблицу» или «Запись не найдена» / «Таблица не настроена».
+- **Парсер** (`src/bot/parse-ideya.ts`): из текста вида «Название 1: …», «Автор идеи: …», блок «Драйверы роста» (строки с «- ») собирает объект полей. Драйверы → Драйвер 1 … Драйвер 5, «Источник» → «Ссылка». Для таблицы заголовки: Название 1–3, Автор идеи, Аналитик(и), Базовый актив, Целевая цена, Стоп-лосс, Направление, Горизонт (дней), Драйвер 1–5, Ссылка, Дата (порядок столбцов в таблице любой — подстановка по названию заголовка).
+- **Google Sheets:** `src/sheets.ts`, пакет `googleapis`. Читается первая строка листа как заголовки, строка данных подставляется по ним, добавляется колонка «Дата». Переменные: `GOOGLE_SHEET_ID`, `GOOGLE_SHEETS_CREDENTIALS_JSON` (JSON ключа сервисного аккаунта). Инструкция по настройке Google (в т.ч. испанский UI): `docs/plan-sheets-export.md`.
+
+**Текущая проблема (для продолжения в новом чате):** при нажатии кнопки пользователь видит **«Запись не найдена»** — т.е. `getExtractionByBotMessage(chatId, botMessageId)` возвращает null. Добавлено логирование в Railway: при сохранении — «Saving extraction with bot_message_id» (sentMessageId, willSaveBotMessageId); при нажатии — «Callback: looking up extraction» (chatId, botMessageId); при отсутствии записи — «Callback: extraction not found». Вероятная причина: `sentMessageId` приходит 0 (не извлекаем message_id из ответа Telegram) и в БД сохраняется `bot_message_id = NULL`. Нужно по логам проверить значения и при необходимости поправить разбор ответа в `src/telegram.ts` (возврат message_id с первого чанка с кнопкой).
 
 ---
 
-## 9. Что можно делать дальше
+## 9. Что уже сделано и что решено
 
-- **Экспорт в Google Sheets:** читать из таблицы `extractions` (raw_output и/или extracted_data) и записывать строки в Google Таблицу (API или сервисный аккаунт).
-- **Парсинг структурированных полей:** если промпт будет возвращать стабильный формат или JSON в конце — парсить в `extracted_data` и использовать для колонок в Sheets.
-- Правка промпта: редактировать `prompts/format_prompt.md` в репозитории или переменную `FORMAT_PROMPT` в Railway.
+- Один процесс, fetch к Telegram API, без GrammY/Redis/BullMQ.
+- Postgres: таблица `extractions` с `bot_message_id` для привязки кнопки к записи.
+- Ссылка на пост: из `forward_origin.message_id` берётся id поста в канале; подстановка готовой ссылки в строку «Источник» (или «—» при отсутствии данных).
+- Промпт: три варианта названия (деловой, Коммерсантъ, кликбейт), драйверы, стоп-лосс и т.д. в `prompts/format_prompt.md`.
+- Кнопка «Отправить в таблицу»: отправка с replyMarkup под первым чанком, сохранение bot_message_id, обработка callback_query, парсер ответа, запись в Google Sheets по заголовкам. **В работе:** исправление «Запись не найдена» (см. п. 8).
 
 ---
 
 ## 10. Быстрый старт для нового чата
 
 - Репозиторий: TGB3, Node.js + TypeScript, один HTTP-сервер, webhook для Telegram.
-- Промпт: `prompts/format_prompt.md`, плейсхолдеры `{{INPUT_TEXT}}`, `{{SOURCE_META}}`.
-- LLM: OpenRouter (по умолчанию) или OpenAI/Anthropic через `LLM_PROVIDER` и соответствующий ключ.
-- Деплой: Railway, сервис TGB3, домен в Networking, webhook выставить вручную или через `SET_WEBHOOK=true` и `PUBLIC_URL`/`RAILWAY_PUBLIC_DOMAIN`.
-- БД: Postgres по желанию, `extractions` для сырых ответов и структурированных данных под Google Sheets.
+- Промпт: `prompts/format_prompt.md`, плейсхолдеры `{{INPUT_TEXT}}`, `{{SOURCE_META}}`. Три названия, драйверы 1–5, Ссылка.
+- LLM: OpenRouter / OpenAI / Anthropic через `LLM_PROVIDER`.
+- Деплой: Railway, переменные (в т.ч. `DATABASE_URL`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEETS_CREDENTIALS_JSON` для кнопки).
+- **Кнопка «Отправить в таблицу»:** под ответом бота; при нажатии — поиск по (chat_id, bot_message_id) в `extractions`, парсинг, append в Google Таблицу. Сейчас при нажатии показывается «Запись не найдена» — см. раздел 8 (логи, вероятно sentMessageId = 0).
 
-Все перечисленные решения и логика отражены в этом README и в коде по путям выше.
+Все решения и текущий статус — в этом README и в коде по путям выше.
