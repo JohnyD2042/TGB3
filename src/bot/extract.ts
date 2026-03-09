@@ -20,7 +20,7 @@ export interface ExtractedMessage {
 }
 
 export interface SourceMeta {
-  forwardFromChat?: { title?: string; username?: string };
+  forwardFromChat?: { title?: string; username?: string; id?: number };
   /** Id of the message in the original channel (for t.me/channel/post_id link). */
   forwardPostId?: number;
   forwardDate?: number;
@@ -69,15 +69,19 @@ export function extractMessage(message: MessageLike): ExtractedMessage | null {
 
   const origin = message.forward_origin as {
     type?: string;
-    chat?: { title?: string; username?: string };
+    chat?: { title?: string; username?: string; id?: number };
     author_signature?: string;
     message_id?: number;
   } | undefined;
   const originChannel = origin?.type === "channel" ? origin : null;
   const sourceMeta: SourceMeta | undefined = origin
     ? {
-        forwardFromChat: originChannel
-          ? { title: originChannel.chat?.title, username: originChannel.chat?.username }
+        forwardFromChat: originChannel?.chat
+          ? {
+              title: originChannel.chat.title,
+              username: originChannel.chat.username,
+              id: originChannel.chat.id,
+            }
           : undefined,
         forwardPostId: originChannel?.message_id,
         forwardDate: message.forward_date,

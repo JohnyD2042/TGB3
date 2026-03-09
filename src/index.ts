@@ -39,6 +39,15 @@ async function handleUpdate(update: unknown): Promise<void> {
   if (!extracted) return;
 
   const { chatId, messageId, userId, text: inputText, sourceMeta } = extracted;
+
+  // Лог для отладки ссылки на пост (видно в Railway): что прислал Telegram и что извлекли
+  logger.info({
+    message: "Link debug: raw forward_origin and extracted",
+    rawForwardOrigin: (msg as { forward_origin?: unknown }).forward_origin,
+    extractedChannelUsername: sourceMeta?.forwardFromChat?.username,
+    extractedForwardPostId: sourceMeta?.forwardPostId,
+    messageIdInBotChat: messageId,
+  });
   const systemPrompt = "Ты — редактор инвестиционного приложения. Строго следуй инструкциям в промпте. Не выдумывай факты.";
   const formatPrompt = await loadFormatPrompt();
   const postIdForLink = sourceMeta?.forwardPostId ?? messageId;
@@ -52,10 +61,20 @@ async function handleUpdate(update: unknown): Promise<void> {
   };
   const sourceMetaStr = JSON.stringify(promptMeta);
   const channelUsername = sourceMeta?.forwardFromChat?.username;
+  const channelId = sourceMeta?.forwardFromChat?.id;
   const builtLink =
     typeof channelUsername === "string" && channelUsername
       ? `https://t.me/${channelUsername}/${postIdForLink}`
-      : null;
+      : typeof channelId === "number" && sourceMeta?.forwardPostId != null
+        ? `https://t.me/c/${String(channelId).replace(/^-100/, "")}/${postIdForLink}`
+        : null;
+
+  logger.info({
+    message: "Link debug: built link",
+    builtLink,
+    postIdForLink,
+    hasChannelUsername: !!channelUsername,
+  });
 
   // #region agent log
   fetch("http://127.0.0.1:7417/ingest/0625aa43-057e-41ca-8274-dd127b9d9f0d", {
@@ -99,9 +118,11 @@ async function handleUpdate(update: unknown): Promise<void> {
   }
 
   let replyText = output.trim() || "Нет ответа.";
-  // Когда есть channel_username и id поста в канале — подставляем готовую ссылку, чтобы LLM её не обрезал и не искажал
+  // Всегда подменяем строку «Источник:»: либо нашей ссылкой на канал, либо «—», чтобы не показывать некорректную ссылку (например на чат с ботом)
   if (builtLink) {
     replyText = replyText.replace(/^Источник:\s*.*$/m, `Источник: ${builtLink}`);
+  } else {
+    replyText = replyText.replace(/^Источник:\s*.*$/m, "Источник: —");
   }
   // #region agent log
   const sourceLine = output.split("\n").find((l) => l.includes("Источник:"));
