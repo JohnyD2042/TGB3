@@ -68,8 +68,16 @@ export async function appendIdeyaRow(fields: IdeyaFields): Promise<boolean> {
     });
     logger.info({ message: "Sheets: row appended", spreadsheetId: sheetId });
     return true;
-  } catch (err) {
-    logger.error({ message: "Sheets: append failed", err: String(err), spreadsheetId: sheetId });
+  } catch (err: unknown) {
+    const errObj = err as { message?: string; response?: { status?: number; data?: unknown } };
+    logger.error({
+      message: "Sheets: append failed",
+      err: String(err),
+      errMessage: errObj?.message,
+      status: errObj?.response?.status,
+      responseData: errObj?.response?.data,
+      spreadsheetId: sheetId,
+    });
     return false;
   }
 }
