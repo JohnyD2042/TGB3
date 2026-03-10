@@ -35,6 +35,12 @@ const KEY_TO_COLUMN: Record<string, string> = {
   "Источник": "Ссылка",
 };
 
+/** Строка списка драйвера: дефис/тире/буллет + пробелы + текст. LLM может выводить – или — вместо -. */
+function parseDriverLine(line: string): string | null {
+  const m = line.match(/^\s*[-–—•]\s+(.+)$/s);
+  return m ? m[1].trim() : null;
+}
+
 /**
  * Парсит блок инвестидеи в объект полей для Google Sheets.
  * Драйверы роста разбиваются на Драйвер 1 … Драйвер 5.
@@ -54,9 +60,8 @@ export function parseIdeyaBlock(text: string): IdeyaFields {
 
     const colonIdx = line.indexOf(":");
     if (colonIdx === -1) {
-      if (line.startsWith("- ") && drivers.length >= 0) {
-        drivers.push(line.slice(2).trim());
-      }
+      const driverText = parseDriverLine(line);
+      if (driverText !== null) drivers.push(driverText);
       i++;
       continue;
     }
@@ -66,9 +71,18 @@ export function parseIdeyaBlock(text: string): IdeyaFields {
 
     if (key === "Драйверы роста") {
       i++;
-      while (i < lines.length && lines[i].startsWith("- ")) {
-        drivers.push(lines[i].slice(2).trim());
-        i++;
+      while (i < lines.length) {
+        if (!lines[i]) {
+          i++;
+          continue;
+        }
+        const driverText = parseDriverLine(lines[i]);
+        if (driverText !== null) {
+          drivers.push(driverText);
+          i++;
+        } else {
+          break;
+        }
       }
       continue;
     }
