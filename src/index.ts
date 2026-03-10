@@ -91,6 +91,16 @@ async function handleUpdate(update: unknown): Promise<void> {
   } else {
     replyText = replyText.replace(/^Источник:\s*.*$/m, "Источник: —");
   }
+  // Дата оригинального поста (из forward_date Telegram), формат ДД.ММ.ГГГГ; последней строкой после Источник
+  const formatDDMMYYYY = (d: Date) =>
+    `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+  const postDateStr =
+    sourceMeta?.forwardDate != null ? formatDDMMYYYY(new Date(sourceMeta.forwardDate * 1000)) : null;
+  if (replyText.match(/^Дата:\s/m)) {
+    replyText = replyText.replace(/^Дата:\s*.*$/m, postDateStr ? `Дата: ${postDateStr}` : "Дата: —");
+  } else {
+    replyText = replyText.trimEnd() + "\nДата: " + (postDateStr ?? "—");
+  }
 
   const sentMessageId = await sendMessage(chatId, replyText, {
     replyMarkup: {

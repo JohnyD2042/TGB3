@@ -53,7 +53,10 @@ export async function appendIdeyaRow(fields: IdeyaFields): Promise<boolean> {
       return false;
     }
 
-    const dateStr = new Date().toISOString().slice(0, 10);
+    const formatDDMMYYYY = (d: Date) =>
+      `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+    const dateStr =
+      (fields["Дата"] && String(fields["Дата"]).trim()) || formatDDMMYYYY(new Date());
     const row = headerRow.map((header: string) => {
       const key = String(header).trim();
       if (key === "Дата") return dateStr;
