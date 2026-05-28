@@ -98,6 +98,22 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   }
 }
 
+/** Подключает Telegram к нашему серверу, если URL ещё не совпадает. */
+export async function ensureWebhook(webhookUrl: string): Promise<void> {
+  const info = await getWebhookInfo();
+  if (info?.url === webhookUrl) {
+    logger.info({ message: "Webhook already registered", url: webhookUrl });
+    return;
+  }
+  logger.info({
+    message: "Registering Telegram webhook",
+    previousUrl: info?.url || null,
+    webhookUrl,
+    lastError: info?.last_error_message ?? null,
+  });
+  await setWebhook(webhookUrl);
+}
+
 export async function setWebhook(webhookUrl: string): Promise<void> {
   const url = `${TELEGRAM_API}/bot${config.telegram.botToken}/setWebhook`;
   const res = await fetch(url, {
@@ -111,4 +127,25 @@ export async function setWebhook(webhookUrl: string): Promise<void> {
     return;
   }
   logger.info({ message: "Webhook set", url: webhookUrl });
+}
+
+export interface WebhookInfo {
+  url: string;
+  has_custom_certificate: boolean;
+  pending_update_count: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  max_connections?: number;
+}
+
+export async function getWebhookInfo(): Promise<WebhookInfo | null> {
+  const url = `${TELEGRAM_API}/bot${config.telegram.botToken}/getWebhookInfo`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  try {
+    const data = (await res.json()) as { ok?: boolean; result?: WebhookInfo };
+    return data.ok && data.result ? data.result : null;
+  } catch {
+    return null;
+  }
 }

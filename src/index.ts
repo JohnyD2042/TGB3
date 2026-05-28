@@ -2,12 +2,13 @@ import "dotenv/config";
 import * as crypto from "crypto";
 import http from "http";
 import { config, validateConfig } from "./config/env";
+import { resolvePublicOrigin, resolveWebhookUrl } from "./config/public-url";
 import { logger } from "./config/logger";
 import { extractMessage, type MessageLike } from "./bot/extract";
 import { parseIdeyaBlock } from "./bot/parse-ideya";
 import { loadFormatPrompt } from "./prompts/loader";
 import { getLLMClient } from "./llm/client";
-import { sendMessage, answerCallbackQuery, setWebhook } from "./telegram";
+import { sendMessage, answerCallbackQuery, ensureWebhook, getWebhookInfo } from "./telegram";
 import { initDb, saveExtraction, getExtractionByBotMessage, type ExtractedData } from "./db";
 import { appendIdeyaRow } from "./sheets";
 
@@ -67,11 +68,21 @@ async function handleUpdate(update: unknown): Promise<void> {
     .replace(/\{\{SOURCE_META\}\}/g, sourceMetaStr);
 
   const llm = getLLMClient();
-  const output = await llm.generate(systemPrompt, userMessage, {
-    temperature: config.llm.temperature,
-    maxTokens: config.llm.maxOutputTokens,
-    timeoutMs: config.llm.timeoutMs,
-  });
+  let output: string;
+  try {
+    output = await llm.generate(systemPrompt, userMessage, {
+      temperature: config.llm.temperature,
+      maxTokens: config.llm.maxOutputTokens,
+      timeoutMs: config.llm.timeoutMs,
+    });
+  } catch (err) {
+    logger.error({ message: "LLM generate failed", err: String(err), chatId });
+    await sendMessage(
+      chatId,
+      "Сейчас не удалось обработать сообщение (ошибка нейросети). Попробуйте через минуту."
+    );
+    return;
+  }
 
   // Проверка промпта: при LOG_LEVEL=debug в логах видно, что ушло в LLM и что вернулось
   if (config.app.logLevel === "debug") {
@@ -182,9 +193,22 @@ async function main() {
   await initDb();
 
   const server = http.createServer(async (req, res) => {
-    if (req.method === "GET" && req.url === "/health") {
+    if (req.method === "GET" && (req.url === "/health" || req.url === "/health?webhook=1")) {
+      const includeWebhook = req.url.includes("webhook=1");
+      const body: Record<string, unknown> = { ok: true };
+      if (includeWebhook) {
+        const info = await getWebhookInfo();
+        body.webhook = info
+          ? {
+              url: info.url || null,
+              pending_update_count: info.pending_update_count,
+              last_error_message: info.last_error_message ?? null,
+              last_error_date: info.last_error_date ?? null,
+            }
+          : null;
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
+      res.end(JSON.stringify(body));
       return;
     }
 
@@ -195,7 +219,7 @@ async function main() {
       }
       try {
         const update = JSON.parse(body) as {
-          message?: unknown;
+          message?: { chat?: { id: number }; text?: string; caption?: string };
           callback_query?: { id: string; message?: { chat?: { id: number }; message_id?: number } };
         };
         if (update.callback_query) {
@@ -205,6 +229,24 @@ async function main() {
         }
       } catch (err) {
         logger.error({ message: "Webhook error", err: String(err) });
+        const chatId = (() => {
+          try {
+            const u = JSON.parse(body) as { message?: { chat?: { id: number } } };
+            return u.message?.chat?.id;
+          } catch {
+            return undefined;
+          }
+        })();
+        if (chatId != null) {
+          try {
+            await sendMessage(
+              chatId,
+              "Не удалось обработать сообщение. Попробуйте ещё раз или проверьте логи сервера."
+            );
+          } catch {
+            // ignore secondary failure
+          }
+        }
       }
       res.writeHead(200);
       res.end();
@@ -216,13 +258,31 @@ async function main() {
   });
 
   server.listen(config.app.port, async () => {
-    logger.info({ message: "Listening", port: config.app.port });
-    const domain =
-      process.env.PUBLIC_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") ||
-      process.env.RAILWAY_PUBLIC_DOMAIN;
-    if (config.app.setWebhookOnStart && domain) {
-      const webhookUrl = `https://${domain}/telegram/webhook`;
-      await setWebhook(webhookUrl);
+    logger.info({
+      message: "Listening",
+      port: config.app.port,
+      publicOrigin: resolvePublicOrigin(),
+    });
+
+    const webhookUrl = resolveWebhookUrl();
+    if (config.app.autoRegisterWebhook && webhookUrl) {
+      await ensureWebhook(webhookUrl);
+    } else if (config.app.autoRegisterWebhook && !webhookUrl) {
+      logger.warn({
+        message:
+          "Не удалось определить публичный URL для webhook. В Railway включите Public Networking или задайте PUBLIC_URL.",
+      });
+    }
+
+    const info = await getWebhookInfo();
+    if (info) {
+      logger.info({
+        message: "Telegram webhook status",
+        url: info.url || "(not set)",
+        expectedUrl: webhookUrl,
+        pendingUpdateCount: info.pending_update_count,
+        lastErrorMessage: info.last_error_message ?? null,
+      });
     }
   });
 }

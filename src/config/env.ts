@@ -34,7 +34,9 @@ export const config = {
   app: {
     port: optionalNum("PORT", 3000),
     logLevel: optionalStr("LOG_LEVEL", "info") as "debug" | "info" | "warn" | "error",
-    setWebhookOnStart: getEnv("SET_WEBHOOK") === "true" || getEnv("SET_WEBHOOK") === "1",
+    /** По умолчанию вкл.; отключить: SET_WEBHOOK=false */
+    autoRegisterWebhook:
+      getEnv("SET_WEBHOOK") !== "false" && getEnv("SET_WEBHOOK") !== "0",
   },
 
   telegram: {
