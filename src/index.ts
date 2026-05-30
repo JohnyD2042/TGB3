@@ -12,6 +12,31 @@ import { sendMessage, answerCallbackQuery, ensureWebhook, getWebhookInfo } from 
 import { initDb, saveExtraction, getExtractionByBotMessage, type ExtractedData } from "./db";
 import { appendIdeyaRow } from "./sheets";
 
+/** Сегодня по Москве (ГГГГ-ММ-ДД) — для расчёта горизонта в промпте. */
+function todayDateMoscowISO(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function llmErrorReply(err: unknown): string {
+  const s = String(err).toLowerCase();
+  if (
+    s.includes("402") ||
+    s.includes("insufficient") ||
+    s.includes("credit") ||
+    s.includes("balance") ||
+    s.includes("billing") ||
+    s.includes("payment required")
+  ) {
+    return "Закончились кредиты на OpenRouter. Пополните баланс на openrouter.ai (Credits), затем отправьте сообщение снова.";
+  }
+  return "Сейчас не удалось обработать сообщение (ошибка нейросети). Попробуйте через минуту.";
+}
+
 function tryParseExtractedData(text: string): ExtractedData | null {
   const trimmed = text.trim();
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
@@ -52,6 +77,7 @@ async function handleUpdate(update: unknown): Promise<void> {
     forward_from: sourceMeta?.forwardFromChat?.title ?? sourceMeta?.forwardFromChat?.username ?? null,
     author_signature: sourceMeta?.forwardSignature ?? null,
     message_date: sourceMeta?.forwardDate ?? null,
+    today_date: todayDateMoscowISO(),
   };
   const sourceMetaStr = JSON.stringify(promptMeta);
   const channelUsername = sourceMeta?.forwardFromChat?.username;
@@ -77,10 +103,7 @@ async function handleUpdate(update: unknown): Promise<void> {
     });
   } catch (err) {
     logger.error({ message: "LLM generate failed", err: String(err), chatId });
-    await sendMessage(
-      chatId,
-      "Сейчас не удалось обработать сообщение (ошибка нейросети). Попробуйте через минуту."
-    );
+    await sendMessage(chatId, llmErrorReply(err));
     return;
   }
 
