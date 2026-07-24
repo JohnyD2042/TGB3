@@ -11,6 +11,11 @@ import { getLLMClient } from "./llm/client";
 import { sendMessage, answerCallbackQuery, ensureWebhook, getWebhookInfo } from "./telegram";
 import { initDb, saveExtraction, getExtractionByBotMessage, type ExtractedData } from "./db";
 import { appendIdeyaRow } from "./sheets";
+import { extractHttpUrl, isPrimarilyUrlMessage, isTelegramUrl } from "./web/url";
+import { fetchPageText } from "./web/fetch-page";
+
+const NO_INVESTMENT_IDEA_MARKER = "NO_INVESTMENT_IDEA";
+const NO_INVESTMENT_IDEA_REPLY = "Кажется, там нет инвестидеи";
 
 /** Сегодня по Москве (ГГГГ-ММ-ДД) — для расчёта горизонта в промпте. */
 function todayDateMoscowISO(): string {
@@ -20,6 +25,10 @@ function todayDateMoscowISO(): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+function formatDDMMYYYY(d: Date): string {
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
 }
 
 function llmErrorReply(err: unknown): string {
@@ -58,40 +67,33 @@ function tryParseExtractedData(text: string): ExtractedData | null {
   return null;
 }
 
-async function handleUpdate(update: unknown): Promise<void> {
-  const u = update as { message?: { text?: string; caption?: string; chat?: { id: number }; message_id?: number; from?: { id: number }; forward_origin?: unknown; forward_date?: number } };
-  const msg = u?.message;
-  if (!msg || (!msg.text && !msg.caption) || !msg.chat) return;
+function isNoInvestmentIdea(output: string): boolean {
+  const t = output.trim();
+  return t === NO_INVESTMENT_IDEA_MARKER || t.startsWith(NO_INVESTMENT_IDEA_MARKER + "\n");
+}
 
-  const extracted = extractMessage(msg as MessageLike);
-  if (!extracted) return;
+type ProcessIdeyaParams = {
+  chatId: number;
+  messageId: number;
+  userId: number;
+  inputText: string;
+  promptMeta: Record<string, unknown>;
+  /** Force Источник: to this URL when set. */
+  sourceLink: string | null;
+  /** Дата для строки Дата: (ДД.ММ.ГГГГ) или null → "—" */
+  postDateStr: string | null;
+  /** Extra fields saved with extraction */
+  saveSourceMeta?: Record<string, unknown>;
+};
 
-  const { chatId, messageId, userId, text: inputText, sourceMeta } = extracted;
-  const systemPrompt = "Ты — редактор инвестиционного приложения. Строго следуй инструкциям в промпте. Не выдумывай факты.";
+async function processIdeyaAndReply(params: ProcessIdeyaParams): Promise<void> {
+  const { chatId, messageId, userId, inputText, promptMeta, sourceLink, postDateStr, saveSourceMeta } = params;
+  const systemPrompt =
+    "Ты — редактор инвестиционного приложения. Строго следуй инструкциям в промпте. Не выдумывай факты.";
   const formatPrompt = await loadFormatPrompt();
-  const postIdForLink = sourceMeta?.forwardPostId ?? messageId;
-  const promptMeta: Record<string, unknown> = {
-    channel_title: sourceMeta?.forwardFromChat?.title ?? null,
-    channel_username: sourceMeta?.forwardFromChat?.username ?? null,
-    post_id: postIdForLink,
-    forward_from: sourceMeta?.forwardFromChat?.title ?? sourceMeta?.forwardFromChat?.username ?? null,
-    author_signature: sourceMeta?.forwardSignature ?? null,
-    message_date: sourceMeta?.forwardDate ?? null,
-    today_date: todayDateMoscowISO(),
-  };
-  const sourceMetaStr = JSON.stringify(promptMeta);
-  const channelUsername = sourceMeta?.forwardFromChat?.username;
-  const channelId = sourceMeta?.forwardFromChat?.id;
-  const builtLink =
-    typeof channelUsername === "string" && channelUsername
-      ? `https://t.me/${channelUsername}/${postIdForLink}`
-      : typeof channelId === "number" && sourceMeta?.forwardPostId != null
-        ? `https://t.me/c/${String(channelId).replace(/^-100/, "")}/${postIdForLink}`
-        : null;
-
   const userMessage = formatPrompt
     .replace(/\{\{INPUT_TEXT\}\}/g, inputText)
-    .replace(/\{\{SOURCE_META\}\}/g, sourceMetaStr);
+    .replace(/\{\{SOURCE_META\}\}/g, JSON.stringify(promptMeta));
 
   const llm = getLLMClient();
   let output: string;
@@ -107,10 +109,9 @@ async function handleUpdate(update: unknown): Promise<void> {
     return;
   }
 
-  // Проверка промпта: при LOG_LEVEL=debug в логах видно, что ушло в LLM и что вернулось
   if (config.app.logLevel === "debug") {
     logger.debug({
-      message: "Prompt and LLM output (to verify title rules)",
+      message: "Prompt and LLM output",
       promptSource: config.prompts.formatPromptEnv ? "env" : "file",
       promptLength: userMessage.length,
       promptPreview: userMessage.slice(0, 1200),
@@ -118,18 +119,17 @@ async function handleUpdate(update: unknown): Promise<void> {
     });
   }
 
+  if (isNoInvestmentIdea(output)) {
+    await sendMessage(chatId, NO_INVESTMENT_IDEA_REPLY);
+    return;
+  }
+
   let replyText = output.trim() || "Нет ответа.";
-  // Всегда подменяем строку «Источник:»: либо нашей ссылкой на канал, либо «—», чтобы не показывать некорректную ссылку (например на чат с ботом)
-  if (builtLink) {
-    replyText = replyText.replace(/^Источник:\s*.*$/m, `Источник: ${builtLink}`);
+  if (sourceLink) {
+    replyText = replyText.replace(/^Источник:\s*.*$/m, `Источник: ${sourceLink}`);
   } else {
     replyText = replyText.replace(/^Источник:\s*.*$/m, "Источник: —");
   }
-  // Дата оригинального поста (из forward_date Telegram), формат ДД.ММ.ГГГГ; последней строкой после Источник
-  const formatDDMMYYYY = (d: Date) =>
-    `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
-  const postDateStr =
-    sourceMeta?.forwardDate != null ? formatDDMMYYYY(new Date(sourceMeta.forwardDate * 1000)) : null;
   if (replyText.match(/^Дата:\s/m)) {
     replyText = replyText.replace(/^Дата:\s*.*$/m, postDateStr ? `Дата: ${postDateStr}` : "Дата: —");
   } else {
@@ -159,7 +159,107 @@ async function handleUpdate(update: unknown): Promise<void> {
     inputTextHash,
     rawOutput: replyText,
     extractedData,
-    sourceMeta: sourceMeta as Record<string, unknown> | undefined,
+    sourceMeta: saveSourceMeta,
+  });
+}
+
+async function handleUpdate(update: unknown): Promise<void> {
+  const u = update as {
+    message?: {
+      text?: string;
+      caption?: string;
+      chat?: { id: number };
+      message_id?: number;
+      from?: { id: number };
+      forward_origin?: unknown;
+      forward_date?: number;
+    };
+  };
+  const msg = u?.message;
+  if (!msg || (!msg.text && !msg.caption) || !msg.chat) return;
+
+  const extracted = extractMessage(msg as MessageLike);
+  if (!extracted) return;
+
+  const { chatId, messageId, userId, text: rawText, sourceMeta } = extracted;
+  const isForward = !!sourceMeta || msg.forward_origin != null;
+
+  // New mode: plain message that is mainly an external http(s) link → fetch page + same LLM format
+  const url = extractHttpUrl(rawText);
+  if (!isForward && url && isPrimarilyUrlMessage(rawText) && !isTelegramUrl(url)) {
+    logger.info({ message: "Web link mode", chatId, url });
+    await sendMessage(chatId, "Читаю страницу…");
+    const page = await fetchPageText(url);
+    if (!page.ok) {
+      const hint =
+        page.reason === "blocked"
+          ? "Сайт не отдаёт текст ботам (защита от автоматического чтения). Скопируйте текст идеи со страницы и пришлите боту сообщением — или перешлите пост из Telegram."
+          : "Не удалось прочитать страницу по ссылке. Проверьте адрес или пришлите текст идеи сообщением.";
+      await sendMessage(chatId, hint);
+      return;
+    }
+
+    await processIdeyaAndReply({
+      chatId,
+      messageId,
+      userId,
+      inputText: page.text,
+      promptMeta: {
+        source_type: "web",
+        page_url: url,
+        page_title: page.title,
+        today_date: todayDateMoscowISO(),
+      },
+      sourceLink: url,
+      postDateStr: formatDDMMYYYY(new Date()),
+      saveSourceMeta: {
+        source_type: "web",
+        page_url: url,
+        page_title: page.title,
+        fetch_method: page.method,
+      },
+    });
+    return;
+  }
+
+  if (!isForward && url && isPrimarilyUrlMessage(rawText) && isTelegramUrl(url)) {
+    await sendMessage(
+      chatId,
+      "Ссылки t.me лучше обрабатывать пересылкой поста боту. Перешлите сообщение из канала — или пришлите внешнюю ссылку на статью в интернете."
+    );
+    return;
+  }
+
+  // Existing Telegram / plain-text mode
+  const postIdForLink = sourceMeta?.forwardPostId ?? messageId;
+  const channelUsername = sourceMeta?.forwardFromChat?.username;
+  const channelId = sourceMeta?.forwardFromChat?.id;
+  const builtLink =
+    typeof channelUsername === "string" && channelUsername
+      ? `https://t.me/${channelUsername}/${postIdForLink}`
+      : typeof channelId === "number" && sourceMeta?.forwardPostId != null
+        ? `https://t.me/c/${String(channelId).replace(/^-100/, "")}/${postIdForLink}`
+        : null;
+
+  await processIdeyaAndReply({
+    chatId,
+    messageId,
+    userId,
+    inputText: rawText,
+    promptMeta: {
+      source_type: "telegram",
+      channel_title: sourceMeta?.forwardFromChat?.title ?? null,
+      channel_username: sourceMeta?.forwardFromChat?.username ?? null,
+      post_id: postIdForLink,
+      forward_from: sourceMeta?.forwardFromChat?.title ?? sourceMeta?.forwardFromChat?.username ?? null,
+      author_signature: sourceMeta?.forwardSignature ?? null,
+      message_date: sourceMeta?.forwardDate ?? null,
+      today_date: todayDateMoscowISO(),
+    },
+    sourceLink: builtLink,
+    postDateStr:
+      sourceMeta?.forwardDate != null ? formatDDMMYYYY(new Date(sourceMeta.forwardDate * 1000)) : null,
+    saveSourceMeta: sourceMeta as Record<string, unknown> | undefined,
   });
 }
 
